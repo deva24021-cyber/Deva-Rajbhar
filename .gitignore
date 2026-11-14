@@ -1,0 +1,37 @@
+# Node.js / Express / Vite
+node_modules/
+dist/
+coverage/
+*.log
+npm-debug.log*
+.env
+.env*
+!.env.example
+data/store.json
+
+# Flutter / Dart / Android / iOS
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+**/android/**/gradle-wrapper.jar
+**/android/.gradle/
+**/android/captures/
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+*.apk
+*.aab
+*.ipa
+*.keystore
+*.jks
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
