@@ -1,23 +1,22 @@
 import React, {useMemo, useState} from 'react';
 import {AlertCircle, CheckCircle2, Save} from 'lucide-react';
+import {updateCommissionSlab} from '../services/firestoreService';
 import type {B2BUser, CommissionPackage, CommissionSlab} from '../types';
 
 interface CommissionSlabsViewProps {
   activeUser: B2BUser;
   packages: CommissionPackage[];
   slabs: CommissionSlab[];
-  onRefresh: () => Promise<void>;
 }
 
 export const CommissionSlabsView: React.FC<CommissionSlabsViewProps> = ({
   activeUser,
   packages,
   slabs,
-  onRefresh,
 }) => {
   const [simOp, setSimOp] = useState('AIRTEL');
   const [simAmount, setSimAmount] = useState('1000');
-  const [editingSlab, setEditingSlab] = useState<{id: number; value: string} | null>(null);
+  const [editingSlab, setEditingSlab] = useState<{id: string; value: string} | null>(null);
   const [feedback, setFeedback] = useState<{type: 'success' | 'error'; message: string} | null>(null);
 
   const operators = useMemo(() => {
@@ -32,13 +31,13 @@ export const CommissionSlabsView: React.FC<CommissionSlabsViewProps> = ({
 
   const simSplit = useMemo(() => {
     const amt = Number(simAmount) || 0;
-    const getRate = (pkgId: number) =>
+    const getRate = (pkgId: string) =>
       slabs.find((s) => s.packageId === pkgId && s.operatorCode === simOp)?.commissionPercent ?? 0;
 
-    const adminRate = getRate(1);
-    const mdRate = getRate(2);
-    const distRate = getRate(3);
-    const retRate = getRate(4);
+    const adminRate = getRate('pkg_admin_root');
+    const mdRate = getRate('pkg_md_platinum');
+    const distRate = getRate('pkg_dist_prime');
+    const retRate = getRate('pkg_retailer_gold');
 
     const retComm = +((amt * retRate) / 100).toFixed(2);
     const distDiff = Math.max(0, +(distRate - retRate).toFixed(2));
@@ -61,23 +60,15 @@ export const CommissionSlabsView: React.FC<CommissionSlabsViewProps> = ({
     };
   }, [slabs, simOp, simAmount]);
 
-  const saveSlab = async (slabId: number, val: string) => {
+  const saveSlab = async (slabId: string, val: string) => {
     setFeedback(null);
     try {
-      const res = await fetch('/api/slabs', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          actorId: activeUser.id,
-          slabId,
-          commissionPercent: Number(val),
-        }),
+      await updateCommissionSlab({
+        slabId,
+        commissionPercent: Number(val),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to update slab.');
       setEditingSlab(null);
-      setFeedback({type: 'success', message: 'Commission slab rate updated.'});
-      await onRefresh();
+      setFeedback({type: 'success', message: 'Commission slab rate updated in Firestore.'});
     } catch (err) {
       setFeedback({type: 'error', message: err instanceof Error ? err.message : 'Update failed'});
     }
@@ -103,7 +94,6 @@ export const CommissionSlabsView: React.FC<CommissionSlabsViewProps> = ({
         </div>
       )}
 
-      {/* Commission Split Simulator */}
       <div className="rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -170,7 +160,6 @@ export const CommissionSlabsView: React.FC<CommissionSlabsViewProps> = ({
         </div>
       </div>
 
-      {/* Slab Matrix Table */}
       <div className="rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-base font-semibold text-slate-900">Commission Slab Matrix</h2>
@@ -213,6 +202,8 @@ export const CommissionSlabsView: React.FC<CommissionSlabsViewProps> = ({
                             <input
                               type="number"
                               step="0.05"
+                              min="0"
+                              max="15"
                               value={editingSlab.value}
                               onChange={(e) => setEditingSlab({id: slab.id, value: e.target.value})}
                               className="w-16 rounded border border-blue-800 px-1.5 py-0.5 text-right font-mono text-xs"

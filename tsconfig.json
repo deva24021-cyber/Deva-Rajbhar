@@ -22,7 +22,8 @@
       ]
     },
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "noEmit": true
   },
-  "exclude": ["dist", "backend_api"]
+  "exclude": ["dist", "backend_api", "eslint.config.js"]
 }

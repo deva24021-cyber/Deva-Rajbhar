@@ -17,7 +17,7 @@ export const PassbookView: React.FC<PassbookViewProps> = ({activeUser, users, le
     let base =
       activeUser.role === 'ADMIN' && scope === 'ALL'
         ? ledger
-        : ledger.filter((e) => e.userId === activeUser.id);
+        : ledger.filter((e) => e.userUid === activeUser.uid);
 
     if (filterType !== 'ALL') {
       base = base.filter((e) => e.txnType === filterType);
@@ -28,7 +28,8 @@ export const PassbookView: React.FC<PassbookViewProps> = ({activeUser, users, le
       base = base.filter(
         (e) =>
           e.remark.toLowerCase().includes(q) ||
-          e.referenceId.toLowerCase().includes(q)
+          e.referenceId.toLowerCase().includes(q) ||
+          e.userName.toLowerCase().includes(q)
       );
     }
     return base;
@@ -38,7 +39,7 @@ export const PassbookView: React.FC<PassbookViewProps> = ({activeUser, users, le
     const header = 'ID,User,Type,Amount,OpeningBalance,ClosingBalance,Reference,Remark,Timestamp\n';
     const body = rows
       .map((r) => {
-        const u = users.find((x) => x.id === r.userId)?.name || String(r.userId);
+        const u = users.find((x) => x.uid === r.userUid)?.name || r.userName || r.userUid;
         return `${r.id},"${u}",${r.txnType},${r.amount.toFixed(2)},${r.openingBalance.toFixed(2)},${r.closingBalance.toFixed(2)},"${r.referenceId}","${r.remark.replace(/"/g, '""')}","${r.createdAt}"`;
       })
       .join('\n');
@@ -145,11 +146,11 @@ export const PassbookView: React.FC<PassbookViewProps> = ({activeUser, users, le
             <tbody className="divide-y divide-slate-100">
               {rows.map((e) => {
                 const isCredit = e.txnType === 'CREDIT';
-                const accName = users.find((u) => u.id === e.userId)?.name || `User #${e.userId}`;
+                const accName = users.find((u) => u.uid === e.userUid)?.name || e.userName;
                 return (
                   <tr key={e.id} className="hover:bg-slate-50/80">
                     <td className="px-4 py-2.5 font-mono text-slate-600 whitespace-nowrap">
-                      {e.referenceId || `#${e.id}`}
+                      {e.referenceId || e.id}
                     </td>
                     {activeUser.role === 'ADMIN' && scope === 'ALL' && (
                       <td className="px-4 py-2.5 font-medium text-slate-800 whitespace-nowrap">{accName}</td>

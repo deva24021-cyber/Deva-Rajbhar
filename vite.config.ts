@@ -11,14 +11,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+        includeAssets: ['favicon.ico', 'brand-logo.jpg', 'icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
           id: '/',
           name: 'Krishna Recharge',
           short_name: 'KrishnaPay',
           description:
             'B2B multi-tier mobile, DTH, and BBPS utility recharge portal with commission slabs, fund requests, and wallet ledger.',
-          theme_color: '#1E3A8A',
+          theme_color: '#0F296D',
           background_color: '#F8FAFC',
           display: 'standalone',
           start_url: '/',
@@ -45,6 +45,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
             {

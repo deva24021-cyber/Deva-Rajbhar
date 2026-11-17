@@ -1,0 +1,354 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Default-deny global catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Primitives
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdminEmail() {
+      return isVerifiedUser() && request.auth.token.email == 'deva24021@gmail.com';
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        isBootstrappedAdminEmail() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // =========================================================================
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // =========================================================================
+    function isValidAdminMarker(data) {
+      return data.keys().hasAll(['email', 'createdAt'])
+        && data.keys().hasOnly(['email', 'createdAt'])
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPackage(data) {
+      return data.keys().hasAll(['id', 'name', 'roleTarget', 'description', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'name', 'roleTarget', 'description', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+        && data.roleTarget is string && data.roleTarget in ['ADMIN', 'MD', 'DISTRIBUTOR', 'RETAILER']
+        && data.description is string && data.description.size() <= 200
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSlab(data) {
+      return data.keys().hasAll(['id', 'packageId', 'operatorCode', 'operatorName', 'serviceType', 'commissionPercent', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'packageId', 'operatorCode', 'operatorName', 'serviceType', 'commissionPercent', 'updatedAt'])
+        && isValidId(data.id)
+        && isValidId(data.packageId)
+        && data.operatorCode is string && data.operatorCode.size() >= 2 && data.operatorCode.size() <= 20
+        && data.operatorName is string && data.operatorName.size() >= 2 && data.operatorName.size() <= 60
+        && data.serviceType is string && data.serviceType in ['MOBILE', 'DTH', 'ELECTRICITY', 'FASTAG']
+        && (data.commissionPercent is int || data.commissionPercent is float)
+        && data.commissionPercent >= 0 && data.commissionPercent <= 15
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPartnerUser(data) {
+      return data.keys().hasAll([
+          'uid', 'name', 'shopName', 'phone', 'email', 'role',
+          'parentUid', 'parentShopName', 'parentPhone', 'packageId',
+          'walletBalance', 'tpin', 'isActive', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'name', 'shopName', 'phone', 'email', 'role',
+          'parentUid', 'parentShopName', 'parentPhone', 'packageId',
+          'walletBalance', 'tpin', 'isActive', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 100
+        && data.shopName is string && data.shopName.size() >= 2 && data.shopName.size() <= 120
+        && data.phone is string && data.phone.size() >= 10 && data.phone.size() <= 15
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
+        && data.role is string && data.role in ['ADMIN', 'MD', 'DISTRIBUTOR', 'RETAILER']
+        && data.parentUid is string && data.parentUid.size() <= 128
+        && data.parentShopName is string && data.parentShopName.size() <= 120
+        && data.parentPhone is string && data.parentPhone.size() <= 15
+        && isValidId(data.packageId)
+        && (data.walletBalance is int || data.walletBalance is float) && data.walletBalance >= 0
+        && data.tpin is string && data.tpin.size() >= 4 && data.tpin.size() <= 6
+        && data.isActive is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRecharge(data) {
+      return data.keys().hasAll([
+          'txnRef', 'userUid', 'userName', 'mobileNumber', 'operatorCode',
+          'operatorName', 'serviceType', 'amount', 'retailerCommission',
+          'netDebit', 'status', 'apiTxnId', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'txnRef', 'userUid', 'userName', 'mobileNumber', 'operatorCode',
+          'operatorName', 'serviceType', 'amount', 'retailerCommission',
+          'netDebit', 'status', 'apiTxnId', 'createdAt'
+        ])
+        && isValidId(data.txnRef)
+        && isValidId(data.userUid)
+        && data.userName is string && data.userName.size() >= 2 && data.userName.size() <= 100
+        && data.mobileNumber is string && data.mobileNumber.size() >= 6 && data.mobileNumber.size() <= 24
+        && data.operatorCode is string && data.operatorCode.size() >= 2 && data.operatorCode.size() <= 20
+        && data.operatorName is string && data.operatorName.size() >= 2 && data.operatorName.size() <= 60
+        && data.serviceType is string && data.serviceType in ['MOBILE', 'DTH', 'ELECTRICITY', 'FASTAG']
+        && (data.amount is int || data.amount is float) && data.amount > 0 && data.amount <= 100000
+        && (data.retailerCommission is int || data.retailerCommission is float) && data.retailerCommission >= 0
+        && (data.netDebit is int || data.netDebit is float) && data.netDebit > 0
+        && data.status is string && data.status in ['PENDING', 'SUCCESS', 'FAILED']
+        && data.apiTxnId is string && data.apiTxnId.size() >= 4 && data.apiTxnId.size() <= 64
+        && data.createdAt is timestamp;
+    }
+
+    function isValidLedgerEntry(data) {
+      return data.keys().hasAll([
+          'id', 'userUid', 'userName', 'actorUid', 'txnType',
+          'amount', 'openingBalance', 'closingBalance', 'referenceId', 'remark', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userUid', 'userName', 'actorUid', 'txnType',
+          'amount', 'openingBalance', 'closingBalance', 'referenceId', 'remark', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.userUid)
+        && data.userName is string && data.userName.size() >= 2 && data.userName.size() <= 100
+        && isValidId(data.actorUid)
+        && data.txnType is string && data.txnType in ['CREDIT', 'DEBIT']
+        && (data.amount is int || data.amount is float) && data.amount > 0
+        && (data.openingBalance is int || data.openingBalance is float) && data.openingBalance >= 0
+        && (data.closingBalance is int || data.closingBalance is float) && data.closingBalance >= 0
+        && data.referenceId is string && data.referenceId.size() >= 2 && data.referenceId.size() <= 64
+        && data.remark is string && data.remark.size() >= 2 && data.remark.size() <= 255
+        && data.createdAt is timestamp;
+    }
+
+    function isValidFundRequest(data) {
+      return data.keys().hasAll([
+          'id', 'requesterUid', 'requesterName', 'requesterRole',
+          'approverUid', 'approverName', 'amount', 'paymentMode',
+          'utrNumber', 'remark', 'status', 'actionRemark', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'requesterUid', 'requesterName', 'requesterRole',
+          'approverUid', 'approverName', 'amount', 'paymentMode',
+          'utrNumber', 'remark', 'status', 'actionRemark', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.requesterUid)
+        && data.requesterName is string && data.requesterName.size() >= 2 && data.requesterName.size() <= 100
+        && data.requesterRole is string && data.requesterRole in ['ADMIN', 'MD', 'DISTRIBUTOR', 'RETAILER']
+        && data.approverUid is string && data.approverUid.size() <= 128
+        && data.approverName is string && data.approverName.size() >= 2 && data.approverName.size() <= 100
+        && (data.amount is int || data.amount is float) && data.amount > 0 && data.amount <= 1000000
+        && data.paymentMode is string && data.paymentMode in ['UPI', 'IMPS', 'NEFT', 'CASH']
+        && data.utrNumber is string && data.utrNumber.size() >= 6 && data.utrNumber.size() <= 100
+        && data.remark is string && data.remark.size() <= 255
+        && data.status is string && data.status in ['PENDING', 'APPROVED', 'REJECTED']
+        && data.actionRemark is string && data.actionRemark.size() <= 255
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection Rules
+    // =========================================================================
+
+    // 1. Admins marker collection
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isAdmin() || (isVerifiedUser() && adminUid == request.auth.uid));
+      allow list: if isBootstrappedAdminEmail();
+      allow create: if isValidId(adminUid)
+        && isValidAdminMarker(incoming())
+        && incoming().createdAt == request.time
+        && ((isBootstrappedAdminEmail() && adminUid == request.auth.uid && incoming().email == request.auth.token.email) || isAdmin());
+      allow update, delete: if false;
+    }
+
+    // 2. Commission packages (non-PII catalog)
+    match /packages/{packageId} {
+      allow get: if isValidId(packageId) && isVerifiedUser();
+      allow list: if isVerifiedUser();
+      allow create: if isValidId(packageId) && isAdmin() && isValidPackage(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isValidId(packageId) && isAdmin() && isValidPackage(incoming())
+        && incoming().id == existing().id && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // 3. Commission slabs (non-PII catalog)
+    match /slabs/{slabId} {
+      allow get: if isValidId(slabId) && isVerifiedUser();
+      allow list: if isVerifiedUser();
+      allow create: if isValidId(slabId) && isAdmin() && isValidSlab(incoming())
+        && incoming().updatedAt == request.time
+        && (
+          exists(/databases/$(database)/documents/packages/$(incoming().packageId))
+          || existsAfter(/databases/$(database)/documents/packages/$(incoming().packageId))
+        );
+      allow update: if isValidId(slabId) && isAdmin() && isValidSlab(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['commissionPercent', 'updatedAt'])
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // 4. Partner Users (PII-protected)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isVerifiedUser()
+        && (userId == request.auth.uid || existing().parentUid == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser()
+        && (resource.data.uid == request.auth.uid || resource.data.parentUid == request.auth.uid || isBootstrappedAdminEmail());
+
+      allow create: if isValidId(userId)
+        && isValidPartnerUser(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          // Case A: Bootstrapped admin self-registering
+          (isBootstrappedAdminEmail() && userId == request.auth.uid && incoming().uid == request.auth.uid && incoming().role == 'ADMIN')
+          // Case B: Verified user self-registering strictly as RETAILER with 0 balance
+          || (isVerifiedUser() && userId == request.auth.uid && incoming().uid == request.auth.uid
+              && incoming().email == request.auth.token.email
+              && incoming().role == 'RETAILER' && incoming().walletBalance == 0 && incoming().parentUid == '')
+          // Case C: Admin onboarding a partner
+          || (isAdmin())
+          // Case D: MD or Distributor onboarding a direct downline
+          || (isVerifiedUser() && incoming().parentUid == request.auth.uid && incoming().walletBalance == 0
+              && incoming().role in ['DISTRIBUTOR', 'RETAILER'])
+        );
+
+      allow update: if isValidId(userId)
+        && isValidPartnerUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Admin full administrative update
+          isAdmin()
+          // Action 2: Owner editing their own profile / T-PIN (no role or balance change)
+          || (isVerifiedUser() && userId == request.auth.uid
+              && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'shopName', 'phone', 'tpin', 'updatedAt']))
+          // Action 3: Owner debiting their own wallet during a recharge or direct transfer (strictly decreasing)
+          || (isVerifiedUser() && userId == request.auth.uid
+              && incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance', 'updatedAt'])
+              && incoming().walletBalance < existing().walletBalance)
+          // Action 4: Direct upline parent crediting direct downline wallet (strictly increasing)
+          || (isVerifiedUser() && existing().parentUid == request.auth.uid
+              && incoming().diff(existing()).affectedKeys().hasOnly(['walletBalance', 'updatedAt'])
+              && incoming().walletBalance > existing().walletBalance)
+        );
+
+      allow delete: if false;
+    }
+
+    // 5. Recharge transactions (immutable audit trail, atomically tied to wallet debit)
+    match /recharges/{txnRef} {
+      allow get: if isValidId(txnRef) && isVerifiedUser()
+        && (existing().userUid == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser()
+        && (resource.data.userUid == request.auth.uid || isBootstrappedAdminEmail());
+      allow create: if isValidId(txnRef) && isVerifiedUser()
+        && isValidRecharge(incoming())
+        && incoming().txnRef == txnRef
+        && incoming().userUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.walletBalance
+            - getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.walletBalance
+            >= incoming().netDebit - 0.02
+        )
+        && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.walletBalance
+            - getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.walletBalance
+            <= incoming().netDebit + 0.02
+        );
+      allow update, delete: if false;
+    }
+
+    // 6. Wallet Ledger Passbook (immutable audit trail)
+    match /ledger/{entryId} {
+      allow get: if isValidId(entryId) && isVerifiedUser()
+        && (existing().userUid == request.auth.uid || existing().actorUid == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser()
+        && (resource.data.userUid == request.auth.uid || isBootstrappedAdminEmail());
+      allow create: if isValidId(entryId) && isVerifiedUser()
+        && isValidLedgerEntry(incoming())
+        && incoming().id == entryId
+        && incoming().actorUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/users/$(incoming().userUid))
+        && (incoming().userUid == request.auth.uid
+            || get(/databases/$(database)/documents/users/$(incoming().userUid)).data.parentUid == request.auth.uid
+            || isAdmin());
+      allow update, delete: if false;
+    }
+
+    // 7. B2B Fund Requests (action-based terminal-state locked)
+    match /fund_requests/{requestId} {
+      allow get: if isValidId(requestId) && isVerifiedUser()
+        && (existing().requesterUid == request.auth.uid || existing().approverUid == request.auth.uid || isAdmin());
+      allow list: if isVerifiedUser()
+        && (resource.data.requesterUid == request.auth.uid || resource.data.approverUid == request.auth.uid || isBootstrappedAdminEmail());
+
+      allow create: if isValidId(requestId) && isVerifiedUser()
+        && isValidFundRequest(incoming())
+        && incoming().id == requestId
+        && incoming().requesterUid == request.auth.uid
+        && incoming().status == 'PENDING'
+        && incoming().actionRemark == ''
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+
+      allow update: if isValidId(requestId) && isVerifiedUser()
+        && isValidFundRequest(incoming())
+        && incoming().id == existing().id
+        && incoming().requesterUid == existing().requesterUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && existing().status == 'PENDING'
+        && (existing().approverUid == request.auth.uid || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'actionRemark', 'updatedAt'])
+        && (
+          incoming().status == 'REJECTED'
+          || (
+            incoming().status == 'APPROVED'
+            && getAfter(/databases/$(database)/documents/users/$(existing().requesterUid)).data.walletBalance
+               - get(/databases/$(database)/documents/users/$(existing().requesterUid)).data.walletBalance
+               >= existing().amount - 0.02
+            && getAfter(/databases/$(database)/documents/users/$(existing().requesterUid)).data.walletBalance
+               - get(/databases/$(database)/documents/users/$(existing().requesterUid)).data.walletBalance
+               <= existing().amount + 0.02
+          )
+        );
+
+      allow delete: if false;
+    }
+  }
+}

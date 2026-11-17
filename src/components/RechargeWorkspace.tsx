@@ -1,5 +1,6 @@
 import React, {useMemo, useState} from 'react';
-import {CheckCircle2, Clock, Lock, Smartphone, Tv, Zap, Car, AlertCircle, X} from 'lucide-react';
+import {AlertCircle, Car, CheckCircle2, Clock, Lock, Smartphone, Tv, X, Zap} from 'lucide-react';
+import {executeRecharge} from '../services/firestoreService';
 import type {B2BUser, CommissionSlab, RechargeRecord, ServiceType} from '../types';
 
 interface RechargeWorkspaceProps {
@@ -7,7 +8,6 @@ interface RechargeWorkspaceProps {
   users: B2BUser[];
   slabs: CommissionSlab[];
   recharges: RechargeRecord[];
-  onRefresh: () => Promise<void>;
 }
 
 const QUICK_PLANS: Record<ServiceType, number[]> = {
@@ -29,7 +29,6 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
   users,
   slabs,
   recharges,
-  onRefresh,
 }) => {
   const [serviceType, setServiceType] = useState<ServiceType>('MOBILE');
   const [selectedOp, setSelectedOp] = useState<string>('AIRTEL');
@@ -62,37 +61,17 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
   const commission = +((amountNum * rate) / 100).toFixed(2);
   const netDebit = +(amountNum - commission).toFixed(2);
 
-  // Preview upline split
-  const uplinePreview = useMemo(() => {
-    if (!activeSlab || amountNum <= 0) return [];
-    const list: {name: string; role: string; diff: number; earn: number}[] = [];
-    let currParentId = activeUser.parentId;
-    let prevRate = rate;
-    while (currParentId) {
-      const parent = users.find((u) => u.id === currParentId);
-      if (!parent || parent.role === 'ADMIN') break;
-      const pSlab = slabs.find(
-        (s) => s.packageId === parent.packageId && s.operatorCode === activeSlab.operatorCode
-      );
-      const pRate = pSlab ? pSlab.commissionPercent : prevRate;
-      const diff = +(pRate - prevRate).toFixed(2);
-      if (diff > 0) {
-        list.push({
-          name: parent.name,
-          role: parent.role,
-          diff,
-          earn: +((amountNum * diff) / 100).toFixed(2),
-        });
-        prevRate = pRate;
-      }
-      currParentId = parent.parentId;
-    }
-    return list;
-  }, [activeSlab, amountNum, activeUser.parentId, users, slabs, rate]);
-
   const openConfirm = (e: React.FormEvent) => {
     e.preventDefault();
     setFeedback(null);
+    if (!activeUser.isActive) {
+      setFeedback({type: 'error', message: 'Your partner account is currently suspended. Contact your upline.'});
+      return;
+    }
+    if (!activeSlab) {
+      setFeedback({type: 'error', message: 'Operator slab rates are not initialized yet. Contact Admin HQ.'});
+      return;
+    }
     if (subscriberId.trim().length < 6 || amountNum <= 0) {
       setFeedback({type: 'error', message: 'Enter a valid subscriber number (min 6 digits) and positive amount.'});
       return;
@@ -110,28 +89,19 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
     setSubmitting(true);
     setFeedback(null);
     try {
-      const res = await fetch('/api/recharge', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          userId: activeUser.id,
-          mobileNumber: subscriberId.trim(),
-          operatorCode: activeSlab.operatorCode,
-          amount: amountNum,
-          tpin,
-        }),
+      const record = await executeRecharge({
+        activeUser,
+        slab: activeSlab,
+        mobileNumber: subscriberId.trim(),
+        amount: amountNum,
+        tpin,
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Recharge failed');
-      }
       setShowTpinModal(false);
       setSubscriberId('');
       setFeedback({
         type: 'success',
-        message: `Recharge ${data.record.txnRef} succeeded for ${data.record.mobileNumber}. Net debit ₹${data.record.netDebit.toFixed(2)} (saved ₹${data.record.retailerCommission.toFixed(2)}).`,
+        message: `Recharge ${record.txnRef} succeeded for ${record.mobileNumber}. Net debit ₹${record.netDebit.toFixed(2)} (saved ₹${record.retailerCommission.toFixed(2)}).`,
       });
-      await onRefresh();
     } catch (err) {
       setFeedback({type: 'error', message: err instanceof Error ? err.message : 'Recharge failed'});
     } finally {
@@ -141,15 +111,8 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
 
   const visibleRecharges = useMemo(() => {
     if (activeUser.role === 'ADMIN') return recharges;
-    if (activeUser.role === 'RETAILER') return recharges.filter((r) => r.userId === activeUser.id);
-    const downlineIds = new Set(users.filter((u) => u.parentId === activeUser.id).map((u) => u.id));
-    return recharges.filter(
-      (r) =>
-        r.userId === activeUser.id ||
-        downlineIds.has(r.userId) ||
-        r.uplineCredits.some((c) => c.userId === activeUser.id)
-    );
-  }, [activeUser, recharges, users]);
+    return recharges.filter((r) => r.userUid === activeUser.uid);
+  }, [activeUser, recharges]);
 
   return (
     <div className="space-y-6">
@@ -177,7 +140,6 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left: Recharge Execution Terminal */}
         <form
           onSubmit={openConfirm}
           className="lg:col-span-5 rounded-xl border border-slate-200 bg-white p-6 space-y-5"
@@ -185,11 +147,10 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
           <div>
             <h2 className="text-base font-semibold text-slate-900">Instant Recharge &amp; BBPS Terminal</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Select service, operator slab, and confirm with T-PIN to process and credit upline commissions.
+              Select service, operator slab, and authorize with your T-PIN for atomic wallet settlement.
             </p>
           </div>
 
-          {/* Service Type Segmented Control */}
           <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-slate-100 p-1 sm:grid-cols-4">
             {SERVICE_LABELS.map((svc) => (
               <button
@@ -208,34 +169,38 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
             ))}
           </div>
 
-          {/* Operator Selection */}
           <div>
             <label className="block text-xs font-medium text-slate-700">Operator &amp; Your Slab Rate</label>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {userSlabs.map((slab) => {
-                const selected = activeSlab?.operatorCode === slab.operatorCode;
-                return (
-                  <button
-                    key={slab.id}
-                    type="button"
-                    onClick={() => setSelectedOp(slab.operatorCode)}
-                    className={`flex items-center justify-between rounded-lg border px-3 py-2.5 text-left text-xs transition-colors cursor-pointer ${
-                      selected
-                        ? 'border-blue-800 bg-blue-50/70 text-blue-950 font-semibold'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                    }`}
-                  >
-                    <span className="truncate">{slab.operatorName}</span>
-                    <span className="font-mono text-[11px] font-semibold text-emerald-700 shrink-0 ml-2">
-                      {slab.commissionPercent.toFixed(2)}%
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {userSlabs.length === 0 ? (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900">
+                Operator slabs are awaiting initialization by Admin HQ.
+              </div>
+            ) : (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {userSlabs.map((slab) => {
+                  const selected = activeSlab?.operatorCode === slab.operatorCode;
+                  return (
+                    <button
+                      key={slab.id}
+                      type="button"
+                      onClick={() => setSelectedOp(slab.operatorCode)}
+                      className={`flex items-center justify-between rounded-lg border px-3 py-2.5 text-left text-xs transition-colors cursor-pointer ${
+                        selected
+                          ? 'border-blue-800 bg-blue-50/70 text-blue-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="truncate">{slab.operatorName}</span>
+                      <span className="font-mono text-[11px] font-semibold text-emerald-700 shrink-0 ml-2">
+                        {slab.commissionPercent.toFixed(2)}%
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Subscriber Input */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="sub-id" className="block text-xs font-medium text-slate-700">
@@ -250,6 +215,7 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
               <input
                 id="sub-id"
                 type="text"
+                maxLength={24}
                 value={subscriberId}
                 onChange={(e) => setSubscriberId(e.target.value)}
                 placeholder={serviceType === 'MOBILE' ? '9876543210' : 'Enter ID'}
@@ -266,6 +232,7 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
                 id="recharge-amt"
                 type="number"
                 min="1"
+                max="100000"
                 step="1"
                 value={amountInput}
                 onChange={(e) => setAmountInput(e.target.value)}
@@ -275,7 +242,6 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
             </div>
           </div>
 
-          {/* Quick Amount Buttons */}
           <div>
             <span className="block text-xs font-medium text-slate-500">Quick Denomination</span>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -296,7 +262,6 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
             </div>
           </div>
 
-          {/* Commission & Net Debit Summary */}
           <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-2 text-xs">
             <div className="flex items-center justify-between py-2">
               <span className="text-slate-600">Gross Recharge Amount</span>
@@ -310,41 +275,30 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
               <span className="font-semibold text-slate-900">Net Wallet Deduction</span>
               <span className="font-mono text-sm font-bold text-blue-900">₹{netDebit.toFixed(2)}</span>
             </div>
-            {uplinePreview.length > 0 && (
-              <div className="py-2 text-[11px] text-slate-500">
-                Upline differential payout:{' '}
-                {uplinePreview.map((u, idx) => (
-                  <span key={u.name}>
-                    {idx > 0 ? ' · ' : ''}
-                    {u.name} ({u.role}) +₹{u.earn.toFixed(2)} ({u.diff.toFixed(2)}%)
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
           <button
             type="submit"
-            className="w-full rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-800 cursor-pointer"
+            disabled={!activeSlab}
+            className="w-full rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-800 cursor-pointer"
           >
             Proceed to Recharge
           </button>
         </form>
 
-        {/* Right: Recent Recharges Table */}
         <div className="lg:col-span-7 rounded-xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
             <div>
               <h2 className="text-base font-semibold text-slate-900">Recent Recharge Transactions</h2>
               <p className="text-xs text-slate-500">
-                Showing {visibleRecharges.length} transactions visible to {activeUser.name}
+                Showing {visibleRecharges.length} live cloud transactions
               </p>
             </div>
           </div>
 
           {visibleRecharges.length === 0 ? (
             <div className="p-10 text-center text-sm text-slate-500">
-              No recharge transactions recorded for this account yet. Submit a recharge from the terminal to test live commission distribution.
+              No recharge transactions recorded yet. Submit a recharge from the terminal to log a real-time entry.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -361,10 +315,10 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {visibleRecharges.slice(0, 12).map((r) => {
-                    const userName = users.find((u) => u.id === r.userId)?.name || 'Retailer';
+                  {visibleRecharges.slice(0, 15).map((r) => {
+                    const userName = users.find((u) => u.uid === r.userUid)?.name || r.userName;
                     return (
-                      <tr key={r.id} className="hover:bg-slate-50/80">
+                      <tr key={r.txnRef} className="hover:bg-slate-50/80">
                         <td className="px-4 py-2.5 font-mono text-slate-700 whitespace-nowrap">
                           <div>{r.txnRef}</div>
                           <div className="text-[11px] font-sans text-slate-400">{userName}</div>
@@ -400,7 +354,6 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
         </div>
       </div>
 
-      {/* T-PIN Confirmation Modal */}
       {showTpinModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
@@ -423,7 +376,7 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
 
             <div className="mt-4">
               <label htmlFor="tpin-input" className="block text-xs font-medium text-slate-700">
-                Transaction PIN (Demo PIN: 1234)
+                Transaction PIN
               </label>
               <input
                 id="tpin-input"
@@ -432,7 +385,7 @@ export const RechargeWorkspace: React.FC<RechargeWorkspaceProps> = ({
                 autoFocus
                 value={tpin}
                 onChange={(e) => setTpin(e.target.value)}
-                placeholder="Enter 4-digit T-PIN"
+                placeholder="Enter 4-6 digit T-PIN"
                 className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm tracking-widest focus:border-blue-800 focus:outline-none"
               />
             </div>

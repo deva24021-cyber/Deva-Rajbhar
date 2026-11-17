@@ -1,39 +1,43 @@
 import React, {useMemo, useState} from 'react';
-import {AlertCircle, CheckCircle2, Clock, Send, XCircle} from 'lucide-react';
+import {AlertCircle, CheckCircle2, Clock, CreditCard, Send, XCircle} from 'lucide-react';
+import {
+  actOnFundRequest,
+  directWalletTransfer,
+  submitFundRequest as submitFundRequestToDb,
+} from '../services/firestoreService';
 import type {B2BUser, FundRequest, PaymentMode} from '../types';
+import {PaymentGatewaySelector} from './PaymentGatewaySelector';
 
 interface WalletFundViewProps {
   activeUser: B2BUser;
   users: B2BUser[];
   fundRequests: FundRequest[];
-  onRefresh: () => Promise<void>;
 }
 
 export const WalletFundView: React.FC<WalletFundViewProps> = ({
   activeUser,
   users,
   fundRequests,
-  onRefresh,
 }) => {
-  // Fund Request Form (Pull)
   const [reqAmount, setReqAmount] = useState('5000');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('UPI');
   const [utrNumber, setUtrNumber] = useState('');
-  const [requestTo, setRequestTo] = useState<'PARENT' | 'ADMIN'>('PARENT');
+  const [requestTo, setRequestTo] = useState<'PARENT' | 'ADMIN'>(
+    activeUser.parentUid ? 'PARENT' : 'ADMIN'
+  );
   const [reqRemark, setReqRemark] = useState('');
+  const [showGatewayModal, setShowGatewayModal] = useState(false);
 
-  // Direct Transfer Form (Push)
   const downlineUsers = useMemo(() => {
-    if (activeUser.role === 'ADMIN') return users.filter((u) => u.id !== activeUser.id);
-    return users.filter((u) => u.parentId === activeUser.id);
+    if (activeUser.role === 'ADMIN') return users.filter((u) => u.uid !== activeUser.uid);
+    return users.filter((u) => u.parentUid === activeUser.uid);
   }, [activeUser, users]);
 
-  const [receiverId, setReceiverId] = useState<number>(downlineUsers[0]?.id ?? 0);
+  const [receiverUid, setReceiverUid] = useState<string>('');
   const [transferAmount, setTransferAmount] = useState('2000');
   const [transferTpin, setTransferTpin] = useState('');
   const [transferRemark, setTransferRemark] = useState('');
 
-  // Action modal state for approving/rejecting requests
   const [actionTarget, setActionTarget] = useState<{req: FundRequest; mode: 'APPROVE' | 'REJECT'} | null>(null);
   const [actionTpin, setActionTpin] = useState('');
   const [actionRemark, setActionRemark] = useState('');
@@ -41,36 +45,31 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
   const [feedback, setFeedback] = useState<{type: 'success' | 'error'; message: string} | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const selectedReceiverUid = receiverUid || downlineUsers[0]?.uid || '';
+
   const visibleRequests = useMemo(() => {
     if (activeUser.role === 'ADMIN') return fundRequests;
     return fundRequests.filter(
-      (fr) => fr.requesterId === activeUser.id || fr.approverId === activeUser.id
+      (fr) => fr.requesterUid === activeUser.uid || fr.approverUid === activeUser.uid
     );
   }, [activeUser, fundRequests]);
 
-  const submitFundRequest = async (e: React.FormEvent) => {
+  const handleFundRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setFeedback(null);
     try {
-      const res = await fetch('/api/wallet/fund-request', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          requesterId: activeUser.id,
-          amount: Number(reqAmount),
-          paymentMode,
-          utrNumber,
-          requestTo,
-          remark: reqRemark,
-        }),
+      await submitFundRequestToDb({
+        activeUser,
+        amount: Number(reqAmount),
+        paymentMode,
+        utrNumber,
+        requestTo,
+        remark: reqRemark,
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to submit fund request.');
       setUtrNumber('');
       setReqRemark('');
       setFeedback({type: 'success', message: 'Fund request submitted and queued for approver verification.'});
-      await onRefresh();
     } catch (err) {
       setFeedback({type: 'error', message: err instanceof Error ? err.message : 'Request failed'});
     } finally {
@@ -78,29 +77,23 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
     }
   };
 
-  const submitDirectTransfer = async (e: React.FormEvent) => {
+  const handleDirectTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setFeedback(null);
     try {
-      const targetId = receiverId || downlineUsers[0]?.id;
-      const res = await fetch('/api/wallet/transfer', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          senderId: activeUser.id,
-          receiverId: targetId,
-          amount: Number(transferAmount),
-          tpin: transferTpin,
-          remark: transferRemark || 'Direct Wallet Load',
-        }),
+      const receiver = downlineUsers.find((u) => u.uid === selectedReceiverUid);
+      if (!receiver) throw new Error('Select a valid downline recipient.');
+      await directWalletTransfer({
+        sender: activeUser,
+        receiver,
+        amount: Number(transferAmount),
+        tpin: transferTpin,
+        remark: transferRemark || 'Direct Wallet Load',
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Transfer failed.');
       setTransferTpin('');
       setTransferRemark('');
-      setFeedback({type: 'success', message: data.message});
-      await onRefresh();
+      setFeedback({type: 'success', message: `Transferred ₹${Number(transferAmount).toFixed(2)} to ${receiver.name}.`});
     } catch (err) {
       setFeedback({type: 'error', message: err instanceof Error ? err.message : 'Transfer failed'});
     } finally {
@@ -113,24 +106,20 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
     setBusy(true);
     setFeedback(null);
     try {
-      const res = await fetch('/api/wallet/fund-request/action', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          approverId: activeUser.id,
-          requestId: actionTarget.req.id,
-          action: actionTarget.mode,
-          tpin: actionTpin,
-          actionRemark,
-        }),
+      await actOnFundRequest({
+        approver: activeUser,
+        fundRequest: actionTarget.req,
+        action: actionTarget.mode,
+        tpin: actionTpin,
+        actionRemark,
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Action failed.');
+      const verb = actionTarget.mode === 'APPROVE'
+        ? `Approved ₹${actionTarget.req.amount.toFixed(2)} for ${actionTarget.req.requesterName}.`
+        : 'Fund request rejected.';
       setActionTarget(null);
       setActionTpin('');
       setActionRemark('');
-      setFeedback({type: 'success', message: data.message});
-      await onRefresh();
+      setFeedback({type: 'success', message: verb});
     } catch (err) {
       setFeedback({type: 'error', message: err instanceof Error ? err.message : 'Action failed'});
     } finally {
@@ -159,17 +148,39 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left: Request Fund & Direct Transfer */}
         <div className="lg:col-span-5 space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Instant Wallet Load</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Load funds via UPI QR / Apps or Net Banking (IMPS / NEFT) gateway.
+                </p>
+              </div>
+              <CreditCard className="h-5 w-5 text-[#0F296D] shrink-0" />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setFeedback(null);
+                setShowGatewayModal(true);
+              }}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#0F296D] px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-[#133B8C] whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <CreditCard className="h-3.5 w-3.5" />
+              <span>Select UPI or Net Banking</span>
+            </button>
+          </div>
+
           {activeUser.role !== 'ADMIN' && (
             <form
-              onSubmit={submitFundRequest}
+              onSubmit={handleFundRequestSubmit}
               className="rounded-xl border border-slate-200 bg-white p-6 space-y-4"
             >
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Submit Fund Request</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Deposit funds via UPI/IMPS/NEFT and submit a unique UTR for upline or Admin approval.
+                  Deposit funds via UPI/IMPS/NEFT and submit your UTR for upline or Admin HQ approval.
                 </p>
               </div>
 
@@ -177,18 +188,22 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                 <div>
                   <label className="block text-xs font-medium text-slate-700">Request To</label>
                   <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
-                    {(['PARENT', 'ADMIN'] as const).map((target) => (
-                      <button
-                        key={target}
-                        type="button"
-                        onClick={() => setRequestTo(target)}
-                        className={`rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                          requestTo === target ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                        }`}
-                      >
-                        {target === 'PARENT' ? 'Upline' : 'Admin HQ'}
-                      </button>
-                    ))}
+                    {(['PARENT', 'ADMIN'] as const).map((target) => {
+                      const disabled = target === 'PARENT' && !activeUser.parentUid;
+                      return (
+                        <button
+                          key={target}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setRequestTo(target)}
+                          className={`rounded-md py-1.5 text-xs font-medium transition-colors disabled:opacity-40 cursor-pointer ${
+                            requestTo === target ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                          }`}
+                        >
+                          {target === 'PARENT' ? 'Upline' : 'Admin HQ'}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -219,6 +234,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                     id="req-amt"
                     type="number"
                     min="1"
+                    max="1000000"
                     value={reqAmount}
                     onChange={(e) => setReqAmount(e.target.value)}
                     className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:border-blue-800 focus:outline-none"
@@ -234,6 +250,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                     <input
                       id="req-utr"
                       type="text"
+                      maxLength={100}
                       value={utrNumber}
                       onChange={(e) => setUtrNumber(e.target.value)}
                       placeholder="e.g. UPI431982099"
@@ -251,6 +268,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                 <input
                   id="req-remark"
                   type="text"
+                  maxLength={255}
                   value={reqRemark}
                   onChange={(e) => setReqRemark(e.target.value)}
                   placeholder="Bank / UPI sender note"
@@ -270,13 +288,13 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
 
           {activeUser.role !== 'RETAILER' && (
             <form
-              onSubmit={submitDirectTransfer}
+              onSubmit={handleDirectTransferSubmit}
               className="rounded-xl border border-slate-200 bg-white p-6 space-y-4"
             >
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Direct Downline Wallet Transfer</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Push balance immediately to a direct downline member using deadlock-safe atomic transfer.
+                  Push balance immediately to a downline member using atomic Firestore transactions.
                 </p>
               </div>
 
@@ -286,15 +304,19 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                 </label>
                 <select
                   id="trf-receiver"
-                  value={receiverId || downlineUsers[0]?.id || ''}
-                  onChange={(e) => setReceiverId(Number(e.target.value))}
+                  value={selectedReceiverUid}
+                  onChange={(e) => setReceiverUid(e.target.value)}
                   className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-900 focus:border-blue-800 focus:outline-none"
                 >
-                  {downlineUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.role} · Bal ₹{u.walletBalance.toFixed(2)})
-                    </option>
-                  ))}
+                  {downlineUsers.length === 0 ? (
+                    <option value="">No downline partners available</option>
+                  ) : (
+                    downlineUsers.map((u) => (
+                      <option key={u.uid} value={u.uid}>
+                        {u.name} ({u.role} · Bal ₹{u.walletBalance.toFixed(2)})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -307,6 +329,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                     id="trf-amt"
                     type="number"
                     min="1"
+                    max="1000000"
                     value={transferAmount}
                     onChange={(e) => setTransferAmount(e.target.value)}
                     className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:border-blue-800 focus:outline-none"
@@ -315,14 +338,15 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                 </div>
                 <div>
                   <label htmlFor="trf-pin" className="block text-xs font-medium text-slate-700">
-                    Your T-PIN (1234)
+                    Your T-PIN
                   </label>
                   <input
                     id="trf-pin"
                     type="password"
+                    maxLength={6}
                     value={transferTpin}
                     onChange={(e) => setTransferTpin(e.target.value)}
-                    placeholder="1234"
+                    placeholder="Enter T-PIN"
                     className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:border-blue-800 focus:outline-none"
                     required
                   />
@@ -336,6 +360,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                 <input
                   id="trf-remark"
                   type="text"
+                  maxLength={255}
                   value={transferRemark}
                   onChange={(e) => setTransferRemark(e.target.value)}
                   placeholder="Evening settlement load"
@@ -355,7 +380,6 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
           )}
         </div>
 
-        {/* Right: Fund Requests Queue */}
         <div className="lg:col-span-7 rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="text-base font-semibold text-slate-900">Fund Request Queue &amp; Approvals</h2>
@@ -383,17 +407,15 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleRequests.map((fr) => {
-                    const reqUser = users.find((u) => u.id === fr.requesterId);
-                    const appUser = users.find((u) => u.id === fr.approverId);
                     const canAct =
                       fr.status === 'PENDING' &&
-                      (fr.approverId === activeUser.id || activeUser.role === 'ADMIN');
+                      (fr.approverUid === activeUser.uid || activeUser.role === 'ADMIN');
 
                     return (
                       <tr key={fr.id} className="hover:bg-slate-50/80">
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900">{reqUser?.name || 'User'}</div>
-                          <div className="text-[11px] text-slate-500">{reqUser?.role}</div>
+                          <div className="font-medium text-slate-900">{fr.requesterName}</div>
+                          <div className="text-[11px] text-slate-500">{fr.requesterRole}</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="font-mono font-medium text-slate-800">{fr.utrNumber}</div>
@@ -406,7 +428,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
                           ₹{fr.amount.toFixed(2)}
                         </td>
                         <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                          {appUser?.name || 'Admin'}
+                          {fr.approverName || 'Krishna Recharge HQ'}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {fr.status === 'APPROVED' && (
@@ -470,7 +492,6 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
         </div>
       </div>
 
-      {/* Approve / Reject Modal */}
       {actionTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
@@ -482,18 +503,17 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
               {actionTarget.mode === 'APPROVE' ? 'Approve Fund Request' : 'Reject Fund Request'}
             </h3>
             <p className="text-xs text-slate-600">
-              Request #{actionTarget.req.id} · UTR{' '}
+              Ref <span className="font-mono">{actionTarget.req.id}</span> · UTR{' '}
               <span className="font-mono font-semibold">{actionTarget.req.utrNumber}</span> · Amount{' '}
               <span className="font-mono font-semibold">₹{actionTarget.req.amount.toFixed(2)}</span>
             </p>
 
             {actionTarget.mode === 'APPROVE' && (
               <div>
-                <label className="block text-xs font-medium text-slate-700">
-                  Approver T-PIN (Demo: 1234)
-                </label>
+                <label className="block text-xs font-medium text-slate-700">Approver T-PIN</label>
                 <input
                   type="password"
+                  maxLength={6}
                   value={actionTpin}
                   onChange={(e) => setActionTpin(e.target.value)}
                   placeholder="Enter T-PIN"
@@ -506,6 +526,7 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
               <label className="block text-xs font-medium text-slate-700">Action Remark</label>
               <input
                 type="text"
+                maxLength={255}
                 value={actionRemark}
                 onChange={(e) => setActionRemark(e.target.value)}
                 placeholder={actionTarget.mode === 'APPROVE' ? 'UTR verified in bank' : 'Payment not received'}
@@ -537,6 +558,17 @@ export const WalletFundView: React.FC<WalletFundViewProps> = ({
           </div>
         </div>
       )}
+
+      {showGatewayModal && (
+        <PaymentGatewaySelector
+          activeUser={activeUser}
+          initialAmount={reqAmount}
+          onClose={() => setShowGatewayModal(false)}
+          onSuccess={(message) => setFeedback({type: 'success', message})}
+        />
+      )}
     </div>
   );
 };
+
+export const FundRequestView = WalletFundView;

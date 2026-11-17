@@ -4,39 +4,45 @@ export type PaymentMode = 'UPI' | 'IMPS' | 'NEFT' | 'CASH';
 export type FundStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface B2BUser {
-  id: number;
+  uid: string;
   name: string;
   shopName: string;
   phone: string;
+  email: string;
   role: UserRole;
-  parentId: number | null;
-  packageId: number;
+  parentUid: string;
+  parentShopName: string;
+  parentPhone: string;
+  packageId: string;
   walletBalance: number;
   tpin: string;
   isActive: boolean;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface CommissionPackage {
-  id: number;
+  id: string;
   name: string;
   roleTarget: UserRole;
   description: string;
+  updatedAt: string;
 }
 
 export interface CommissionSlab {
-  id: number;
-  packageId: number;
+  id: string;
+  packageId: string;
   operatorCode: string;
   operatorName: string;
   serviceType: ServiceType;
   commissionPercent: number;
+  updatedAt: string;
 }
 
 export interface RechargeRecord {
-  id: number;
   txnRef: string;
-  userId: number;
+  userUid: string;
+  userName: string;
   mobileNumber: string;
   operatorCode: string;
   operatorName: string;
@@ -44,15 +50,16 @@ export interface RechargeRecord {
   amount: number;
   retailerCommission: number;
   netDebit: number;
-  uplineCredits: { userId: number; userName: string; role: UserRole; rateDiff: number; amount: number }[];
   status: 'SUCCESS' | 'PENDING' | 'FAILED';
   apiTxnId: string;
   createdAt: string;
 }
 
 export interface LedgerEntry {
-  id: number;
-  userId: number;
+  id: string;
+  userUid: string;
+  userName: string;
+  actorUid: string;
   txnType: 'CREDIT' | 'DEBIT';
   amount: number;
   openingBalance: number;
@@ -63,9 +70,12 @@ export interface LedgerEntry {
 }
 
 export interface FundRequest {
-  id: number;
-  requesterId: number;
-  approverId: number;
+  id: string;
+  requesterUid: string;
+  requesterName: string;
+  requesterRole: UserRole;
+  approverUid: string;
+  approverName: string;
   amount: number;
   paymentMode: PaymentMode;
   utrNumber: string;
@@ -80,14 +90,4 @@ export interface ProjectArtifact {
   path: string;
   label: string;
   content: string;
-}
-
-export interface BootstrapPayload {
-  users: B2BUser[];
-  packages: CommissionPackage[];
-  slabs: CommissionSlab[];
-  recharges: RechargeRecord[];
-  ledger: LedgerEntry[];
-  fundRequests: FundRequest[];
-  artifacts: ProjectArtifact[];
 }

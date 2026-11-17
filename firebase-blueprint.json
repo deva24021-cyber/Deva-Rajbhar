@@ -1,0 +1,399 @@
+{
+  "entities": {
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Marker document granting admin privileges to a verified UID.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 160,
+          "description": "Verified admin email address"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin marker was created"
+        }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "CommissionPackage": {
+      "title": "CommissionPackage",
+      "description": "B2B tier commission package assigned to users.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "roleTarget": {
+          "type": "string",
+          "enum": ["ADMIN", "MD", "DISTRIBUTOR", "RETAILER"]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "roleTarget", "description", "updatedAt"]
+    },
+    "CommissionSlab": {
+      "title": "CommissionSlab",
+      "description": "Operator commission rate inside a commission package.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "packageId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "operatorCode": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$",
+          "minLength": 2,
+          "maxLength": 20
+        },
+        "operatorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "serviceType": {
+          "type": "string",
+          "enum": ["MOBILE", "DTH", "ELECTRICITY", "FASTAG"]
+        },
+        "commissionPercent": {
+          "type": "number",
+          "description": "Percentage rate from 0 to 15"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "packageId", "operatorCode", "operatorName", "serviceType", "commissionPercent", "updatedAt"]
+    },
+    "PartnerUser": {
+      "title": "PartnerUser",
+      "description": "Registered B2B partner or admin user profile with wallet balance.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "shopName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 15
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["ADMIN", "MD", "DISTRIBUTOR", "RETAILER"]
+        },
+        "parentUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "parentShopName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "parentPhone": {
+          "type": "string",
+          "maxLength": 15
+        },
+        "packageId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "walletBalance": {
+          "type": "number"
+        },
+        "tpin": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 6
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "name", "shopName", "phone", "email", "role", "parentUid", "parentShopName", "parentPhone", "packageId", "walletBalance", "tpin", "isActive", "createdAt", "updatedAt"]
+    },
+    "RechargeTransaction": {
+      "title": "RechargeTransaction",
+      "description": "Mobile, DTH, Electricity, or FASTag recharge record.",
+      "type": "object",
+      "properties": {
+        "txnRef": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 4,
+          "maxLength": 50
+        },
+        "userUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "mobileNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 24
+        },
+        "operatorCode": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 20
+        },
+        "operatorName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 60
+        },
+        "serviceType": {
+          "type": "string",
+          "enum": ["MOBILE", "DTH", "ELECTRICITY", "FASTAG"]
+        },
+        "amount": {
+          "type": "number"
+        },
+        "retailerCommission": {
+          "type": "number"
+        },
+        "netDebit": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "SUCCESS", "FAILED"]
+        },
+        "apiTxnId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["txnRef", "userUid", "userName", "mobileNumber", "operatorCode", "operatorName", "serviceType", "amount", "retailerCommission", "netDebit", "status", "apiTxnId", "createdAt"]
+    },
+    "LedgerEntry": {
+      "title": "LedgerEntry",
+      "description": "Wallet passbook entry tracking opening and closing balances.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 4,
+          "maxLength": 64
+        },
+        "userUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "userName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "actorUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "txnType": {
+          "type": "string",
+          "enum": ["CREDIT", "DEBIT"]
+        },
+        "amount": {
+          "type": "number"
+        },
+        "openingBalance": {
+          "type": "number"
+        },
+        "closingBalance": {
+          "type": "number"
+        },
+        "referenceId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "remark": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 255
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "userUid", "userName", "actorUid", "txnType", "amount", "openingBalance", "closingBalance", "referenceId", "remark", "createdAt"]
+    },
+    "FundRequest": {
+      "title": "FundRequest",
+      "description": "B2B wallet fund load request submitted with payment mode and UTR.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 4,
+          "maxLength": 64
+        },
+        "requesterUid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "requesterName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "requesterRole": {
+          "type": "string",
+          "enum": ["ADMIN", "MD", "DISTRIBUTOR", "RETAILER"]
+        },
+        "approverUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "approverName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "amount": {
+          "type": "number"
+        },
+        "paymentMode": {
+          "type": "string",
+          "enum": ["UPI", "IMPS", "NEFT", "CASH"]
+        },
+        "utrNumber": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 100
+        },
+        "remark": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "APPROVED", "REJECTED"]
+        },
+        "actionRemark": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "requesterUid", "requesterName", "requesterRole", "approverUid", "approverName", "amount", "paymentMode", "utrNumber", "remark", "status", "actionRemark", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Verified administrator role markers."
+    },
+    "/packages/{packageId}": {
+      "schema": { "$ref": "#/entities/CommissionPackage" },
+      "description": "Commission packages for B2B roles."
+    },
+    "/slabs/{slabId}": {
+      "schema": { "$ref": "#/entities/CommissionSlab" },
+      "description": "Operator commission slabs per package."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/PartnerUser" },
+      "description": "Partner profiles and wallet balances."
+    },
+    "/recharges/{txnRef}": {
+      "schema": { "$ref": "#/entities/RechargeTransaction" },
+      "description": "Recharge and BBPS transaction records."
+    },
+    "/ledger/{entryId}": {
+      "schema": { "$ref": "#/entities/LedgerEntry" },
+      "description": "Wallet passbook entries."
+    },
+    "/fund_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/FundRequest" },
+      "description": "B2B fund load requests and approvals."
+    }
+  }
+}
